@@ -1,6 +1,6 @@
-from fastapi import FastAPI, Query, HTTPException, status
+from fastapi import FastAPI, Query, HTTPException, status, Depends
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 # from sqlalchemy import create_engine, Column, Integer, String, Depends
 # from sqlalchemy.orm import sessionmaker, Session
 
@@ -24,6 +24,10 @@ class Candidate(BaseModel):
     name: str
     email: str
     job_id: str
+
+class CandidateUpdate(BaseModel):
+    email: Optional[str] = None
+    job_id: Optional[str] = None
 
 # This is our "database" - just a list in memory - cache memory
 # applications: List[Candidate] = []
@@ -49,23 +53,30 @@ class Candidate(BaseModel):
 
 #     return output 
 
-@app.post("/applications")
+# In-memory storage
+applications: Dict[str, Candidate] = {}
+
+# Helper function to check if candidate exists
+def get_candidate(candidate_id: str) -> Candidate:
+    if candidate_id not in applications:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Application not found for candidate ID: {candidate_id}"
+        )
+    return applications[candidate_id]
+
+@app.post("/applications", status_code=status.HTTP_201_CREATED)
 def create_application(candidate: Candidate):
+    applications[candidate.candidate_id] = candidate
     return {
         "status": "success",
-        "message": "Application for "+candidate.name +" successfully submitted",
-    }
-
-@app.get("/applications/{candidate_id}")
-def get_condidate_application(candidate_id: str):
-    return {
-                "message": "Application found for candidate ID: " + candidate_id,
+        "message": f"Application submitted for {candidate.name}"
     }
 
 @app.get("/applications")
-def getApplication(
-    company_name: str = Query(None, description="optional query param for company name"),
-    candidate_email: str = Query(None, description="optional query param for candidate email")
+def get_applications(
+    company_name: str = Query(None, description="Filter by company name"),
+    candidate_email: str = Query(None, description="Filter by candidate email")
 ):
     if company_name:
         return {
@@ -83,82 +94,55 @@ def getApplication(
             "message": "Here are all of your applications"
         }
 
-# @app.put("/applications/{candidate_id}")
-# def update_condidate_application(candidate_id: str, candidate: Candidate):
+@app.get("/applications/{candidate_id}")
+def get_candidate_application(candidate_id: str):
+    candidate = get_candidate(candidate_id)
+    return {
+        "status": "success",
+        "message": f"Application found for candidate ID: {candidate_id}"
+    }
 
-# Pydantic models for request/response
-class Item(BaseModel):
-    name: str
-    description: Optional[str] = None
-    price: float
-    is_available: bool = True
-
-class ItemResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str] = None
-    price: float
-    is_available: bool
-
-# In-memory storage
-items_db = {}
-item_id_counter = 1
-
-@app.get("/")
-async def root():
-    """
-    Root endpoint that returns a welcome message.
-    """
-    return {"message": "Welcome to FastAPI Learning API!"}
-
-@app.post("/items/", response_model=ItemResponse, status_code=status.HTTP_201_CREATED)
-async def create_item(item: Item):
-    """
-    Create a new item.
+@app.put("/applications/{candidate_id}")
+def update_application(candidate_id: str, candidate_update: CandidateUpdate):
+    candidate = get_candidate(candidate_id)
     
-    Args:
-        item (Item): The item data to create
-        
-    Returns:
-        ItemResponse: The created item with its ID
-    """
-    global item_id_counter
-    item_dict = item.dict()
-    item_dict["id"] = item_id_counter
-    items_db[item_id_counter] = item_dict
-    item_id_counter += 1
-    return item_dict
-
-@app.get("/items/", response_model=List[ItemResponse])
-async def list_items():
-    """
-    List all items.
+    if candidate_update.email:
+        candidate.email = candidate_update.email
+    if candidate_update.job_id:
+        candidate.job_id = candidate_update.job_id
     
-    Returns:
-        List[ItemResponse]: List of all items
-    """
-    return list(items_db.values())
+    applications[candidate_id] = candidate
+    return {
+        "status": "success",
+        "message": f"Application updated for candidate ID: {candidate_id}"
+    }
 
-@app.get("/items/{item_id}", response_model=ItemResponse)
-async def get_item(item_id: int):
-    """
-    Get a specific item by ID.
+@app.patch("/applications/{candidate_id}")
+def partial_update_application(candidate_id: str, candidate_update: CandidateUpdate):
+    candidate = get_candidate(candidate_id)
     
-    Args:
-        item_id (int): The ID of the item to retrieve
-        
-    Returns:
-        ItemResponse: The requested item
-        
-    Raises:
-        HTTPException: If the item is not found
-    """
-    if item_id not in items_db:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Item with ID {item_id} not found"
-        )
-    return items_db[item_id]
+    updated_fields = []
+    if candidate_update.email:
+        candidate.email = candidate_update.email
+        updated_fields.append("email")
+    if candidate_update.job_id:
+        candidate.job_id = candidate_update.job_id
+        updated_fields.append("job_id")
+    
+    applications[candidate_id] = candidate
+    return {
+        "status": "success",
+        "message": f"Updated {', '.join(updated_fields)} for candidate ID: {candidate_id}"
+    }
+
+@app.delete("/applications/{candidate_id}")
+def delete_application(candidate_id: str):
+    candidate = get_candidate(candidate_id)
+    del applications[candidate_id]
+    return {
+        "status": "success",
+        "message": f"Application deleted for candidate ID: {candidate_id}"
+    }
 
 # @app.get("/")
 # def read_root():
